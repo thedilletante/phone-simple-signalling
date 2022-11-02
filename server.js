@@ -3,14 +3,10 @@
 const PORT = process.env.PORT || 3000;
 const INACTIVITY_TIMEOUT = process.env.INACTIVITY_TIMEOUT || 5000;
 
-const accountSid = process.env.TWILIO_ACCOUNT_SID;
-const authToken = process.env.TWILIO_AUTH_TOKEN;
-
 const express = require("express");
 const { Server } = require("ws");
 const ShortUniqueId = require("short-unique-id");
 const uid = new ShortUniqueId({ length: 10 });
-const client = require('twilio')(accountSid, authToken);
 
 const server = express()
     .listen(PORT, () => console.log(`listening on ${PORT}`));
@@ -85,6 +81,7 @@ wss.on("connection", (ws, req) => {
                     callId = uid();
                     const calling = { caller: ws, fromCaller: [msg] }
                     callings.set(callId, calling);
+                    ws.send(JSON.stringify({ callId }));
                     cleanups.push(() => callings.delete(callId));
                     cleanups.push(() => {
                         if (calling.callee) {
@@ -92,17 +89,6 @@ wss.on("connection", (ws, req) => {
                         }
                     });
                     clearTimeout(inactiveTimeout);
-										client.tokens.create().then(token => {
-										    console.log(endpoint, "allocated token", token);
-                        ws.send(JSON.stringify({ callId, iceServers: token.iceServers }));
-                    }).catch(err => {
-                        console.log(endpoint, "failed to allocate token");
-                        ws.send(JSON.stringify({ callId, iceServers: [
-                            {
-                                urls: "stun:stun.l.google.com:19302",
-                            }
-                        ]}));
-                    });
                 } else {
                     const calling = callings.get(callId);
                     if (!calling) {
@@ -137,24 +123,12 @@ wss.on("connection", (ws, req) => {
                 }
 
                 clearTimeout(inactiveTimeout);
-                client.tokens.create().then(token => {
-                    console.log(endpoint, "allocated token", token);
-                    ws.send(JSON.stringify({ iceServers: token.iceServers }));
-                }).catch(err => {
-                    console.log(endpoint, "failed to allocate token");
-                    ws.send(JSON.stringify({ iceServers: [
-                        {
-                            urls: "stun:stun.l.google.com:19302",
-                        }
-                    ]}));
-                }).then(() => {
-                    calling.calleeReady = true;
-                    calling.caller.send(JSON.stringify(msg));
-                    for (const msg of calling.fromCaller) {
-                        ws.send(JSON.stringify(msg));
-                    }
-                    calling.fromCaller = [];
-                });
+                calling.calleeReady = true;
+                calling.caller.send(JSON.stringify(msg));
+                for (const msg of calling.fromCaller) {
+                    ws.send(JSON.stringify(msg));
+                }
+                calling.fromCaller = [];
                 break;
             }
             default:
